@@ -1,114 +1,198 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
+  <meta charset="UTF-8">
   <title>One-Leg Balance Test</title>
-  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-core"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-converter"></script>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.22.0/dist/tf.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/pose-detection"></script>
   <style>
-    body { font-family: sans-serif; text-align: center; }
-    #video { transform: scaleX(-1); width: 100%; max-width: 1000px; }
-    #overlay { position: absolute; top: 0; left: 0; }
-    #ui { margin-top: 10px; }
-    button { padding: 10px 20px; font-size: 16px; }
+    body {
+      font-family: sans-serif;
+      text-align: center;
+      margin: 0;
+      padding: 0;
+      background: #f4f8fc;
+    }
+    h1 {
+      margin-top: 24px;
+    }
+    #container {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: flex-start;
+      min-height: 100vh;
+    }
+    #video-container {
+      position: relative;
+      display: inline-block;
+      margin-top: 24px;
+    }
+    #video {
+      transform: scaleX(-1);
+      width: 95vw;
+      max-width: 400px;
+      border-radius: 20px;
+      box-shadow: 0 2px 12px rgba(0,0,0,0.08);
+      background: #222;
+    }
+    #overlay {
+      position: absolute;
+      top: 0; left: 0;
+      pointer-events: none;
+    }
+    #ui {
+      margin-top: 24px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 14px;
+    }
+    button {
+      padding: 12px 30px;
+      font-size: 18px;
+      border: none;
+      border-radius: 8px;
+      background: #2a8cff;
+      color: #fff;
+      cursor: pointer;
+      font-weight: 600;
+      transition: background 0.15s;
+    }
+    button:active {
+      background: #1f6bc1;
+    }
+    #status {
+      margin-top: 10px;
+      font-size: 1.2em;
+    }
     #timer {
-      font-size: 8em;
+      font-size: 3em;
       font-weight: bold;
       color: #2a8cff;
+      letter-spacing: 2px;
     }
-    if (timeLeft <= 0) {
-  clearInterval(interval);
-  isTesting = false;
-  alert('Test complete! Balance breaks: ' + count);
-}
+    #breaks {
+      font-size: 1.7em;
+      color: #e24d27;
+      margin-top: 10px;
+    }
+    @media (max-width: 500px) {
+      #video {
+        width: 98vw;
+        max-width: none;
+      }
+    }
   </style>
 </head>
 <body>
-  <h1>🦵 One-Leg Balance Test (30 sec)</h1>
-  <div style="position: relative; display: inline-block;">
-    <video id="video" autoplay muted playsinline></video>
-    <canvas id="overlay"></canvas>
+  <div id="container">
+    <h1>One-Leg Balance Test</h1>
+    <div id="video-container">
+      <video id="video" autoplay playsinline></video>
+      <canvas id="overlay"></canvas>
+    </div>
+    <div id="ui">
+      <button id="startBtn">Start Test</button>
+      <div id="status">
+        <div>Time left: <span id="timer">30</span>s</div>
+      </div>
+      <div id="breaks">
+        Balance breaks: <span id="count">0</span>
+      </div>
+    </div>
   </div>
-  <div id="ui">
-    <button id="startBtn">Start Test</button>
-    <div>Time left: <span id="timer">30</span>s</div>
-    <div>Balance breaks: <span id="count">0</span></div>
-  </div>
+  <script>
+    let detector, video, overlay, ctx;
+    let isTesting = false, timeLeft = 30, count = 0;
+    let interval;
+    let breakDetected = false; // Track if a break is currently being detected
 
-<script>
-  let detector, video, overlay, ctx;
-  let isTesting = false, timeLeft = 30, count = 0;
-  let interval;
-  let breakDetected = false; // Track if a break is currently being detected
+    async function init() {
+      video = document.getElementById('video');
+      overlay = document.getElementById('overlay');
+      ctx = overlay.getContext('2d');
+      // Set up video and overlay size
+      function setSize() {
+        let width = Math.min(window.innerWidth * 0.95, 400);
+        let height = width * 4 / 3;
+        video.width = overlay.width = width;
+        video.height = overlay.height = height;
+      }
+      setSize();
+      window.addEventListener('resize', setSize);
 
-  async function init() {
-    video = document.getElementById('video');
-    overlay = document.getElementById('overlay');
-    ctx = overlay.getContext('2d');
-    overlay.width = video.width = window.innerWidth * 0.9;
-    overlay.height = video.height = window.innerWidth * 0.9 * 4/3;
+      // Get video stream
+      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' } });
+      video.srcObject = stream;
 
-    const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' } });
-    video.srcObject = stream;
-    detector = await poseDetection.createDetector(poseDetection.SupportedModels.MoveNet);
-    requestAnimationFrame(render);
-  }
+      // Load pose detector
+      detector = await poseDetection.createDetector(poseDetection.SupportedModels.MoveNet);
 
-  async function render() {
-    if (video.readyState >= 2) {
-      const poses = await detector.estimatePoses(video);
-      ctx.clearRect(0, 0, overlay.width, overlay.height);
-      if (poses[0] && poses[0].keypoints) {
-        poses[0].keypoints.forEach(kp => {
-          if (kp.score > 0.4) {
-            ctx.beginPath();
-            ctx.arc(kp.x, kp.y, 5, 0, 2 * Math.PI);
-            ctx.fillStyle = 'red';
-            ctx.fill();
-          }
-        });
-        if (isTesting) checkBalance(poses[0].keypoints);
+      // Start rendering loop
+      requestAnimationFrame(render);
+    }
+
+    async function render() {
+      if (video.readyState >= 2 && detector) {
+        const poses = await detector.estimatePoses(video);
+        ctx.clearRect(0, 0, overlay.width, overlay.height);
+        if (poses[0] && poses[0].keypoints) {
+          // Draw keypoints
+          poses[0].keypoints.forEach(kp => {
+            if (kp.score > 0.4) {
+              ctx.beginPath();
+              ctx.arc(kp.x, kp.y, 6, 0, 2 * Math.PI);
+              ctx.fillStyle = 'red';
+              ctx.fill();
+            }
+          });
+          if (isTesting) checkBalance(poses[0].keypoints);
+        }
+      }
+      requestAnimationFrame(render);
+    }
+
+    function checkBalance(keypoints) {
+      const leftAnk = keypoints.find(k => k.name === 'left_ankle');
+      const rightAnk = keypoints.find(k => k.name === 'right_ankle');
+      if (!leftAnk || !rightAnk) return;
+
+      // Detect if either ankle is "too low" (foot touches the floor)
+      const ankleY = Math.max(leftAnk.y, rightAnk.y);
+      if (ankleY > overlay.height * 0.9) {
+        if (!breakDetected) {
+          count++;
+          document.getElementById('count').innerText = count;
+          breakDetected = true; // So we don't increment again until foot is lifted
+        }
+      } else {
+        breakDetected = false; // Reset when foot is lifted
       }
     }
-    requestAnimationFrame(render);
-  }
 
-  function checkBalance(keypoints) {
-    const leftAnk = keypoints.find(k => k.name === 'left_ankle');
-    const rightAnk = keypoints.find(k => k.name === 'right_ankle');
-    if (!leftAnk || !rightAnk) return;
-
-    // Detect if either ankle is "too low"
-    const ankleY = Math.max(leftAnk.y, rightAnk.y);
-    if (ankleY > overlay.height * 0.9) {
-      if (!breakDetected) {
-        count++;
-        document.getElementById('count').innerText = count;
-        breakDetected = true; // So we don't increment again until foot is lifted
-      }
-    } else {
-      breakDetected = false; // Reset when foot is lifted
-    }
-  }
-
-  document.getElementById('startBtn').onclick = () => {
-    if (isTesting) return;
-    count = 0; timeLeft = 30; isTesting = true; breakDetected = false;
-    document.getElementById('count').innerText = count;
-    document.getElementById('timer').innerText = timeLeft;
-    interval = setInterval(() => {
-      timeLeft--;
+    document.getElementById('startBtn').onclick = () => {
+      if (isTesting) return;
+      count = 0; timeLeft = 30; isTesting = true; breakDetected = false;
+      document.getElementById('count').innerText = count;
       document.getElementById('timer').innerText = timeLeft;
-      if (timeLeft <= 0) {
-        clearInterval(interval);
-        isTesting = false;
-        alert('Test complete! Balance breaks: ' + count);
-      }
-    }, 1000);
-  };
+      interval = setInterval(() => {
+        timeLeft--;
+        document.getElementById('timer').innerText = timeLeft;
+        if (timeLeft <= 0) {
+          clearInterval(interval);
+          isTesting = false;
+          alert('Test complete!\nBalance breaks: ' + count);
+        }
+      }, 1000);
+    };
 
-  init();
+    // Initialize everything
+    init();
   </script>
 </body>
 </html>
+ 
+
+  
