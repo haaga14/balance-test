@@ -36,73 +36,79 @@
     <div>Balance breaks: <span id="count">0</span></div>
   </div>
 
-  <script>
-    let detector, video, overlay, ctx;
-    let isTesting = false, timeLeft = 30, count = 0;
-    let interval;
+<script>
+  let detector, video, overlay, ctx;
+  let isTesting = false, timeLeft = 30, count = 0;
+  let interval;
+  let breakDetected = false; // Track if a break is currently being detected
 
-    async function init() {
-      video = document.getElementById('video');
-      overlay = document.getElementById('overlay');
-      ctx = overlay.getContext('2d');
-      overlay.width = video.width = window.innerWidth * 0.9;
-      overlay.height = video.height = window.innerWidth * 0.9 * 4/3;
+  async function init() {
+    video = document.getElementById('video');
+    overlay = document.getElementById('overlay');
+    ctx = overlay.getContext('2d');
+    overlay.width = video.width = window.innerWidth * 0.9;
+    overlay.height = video.height = window.innerWidth * 0.9 * 4/3;
 
-      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' } });
-      video.srcObject = stream;
-      detector = await poseDetection.createDetector(poseDetection.SupportedModels.MoveNet);
-      requestAnimationFrame(render);
-    }
+    const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' } });
+    video.srcObject = stream;
+    detector = await poseDetection.createDetector(poseDetection.SupportedModels.MoveNet);
+    requestAnimationFrame(render);
+  }
 
-    async function render() {
-      if (video.readyState >= 2) {
-        const poses = await detector.estimatePoses(video);
-        ctx.clearRect(0, 0, overlay.width, overlay.height);
-        if (poses[0] && poses[0].keypoints) {
-          poses[0].keypoints.forEach(kp => {
-            if (kp.score > 0.4) {
-              ctx.beginPath();
-              ctx.arc(kp.x, kp.y, 5, 0, 2 * Math.PI);
-              ctx.fillStyle = 'red';
-              ctx.fill();
-            }
-          });
-          if (isTesting) checkBalance(poses[0].keypoints);
-        }
+  async function render() {
+    if (video.readyState >= 2) {
+      const poses = await detector.estimatePoses(video);
+      ctx.clearRect(0, 0, overlay.width, overlay.height);
+      if (poses[0] && poses[0].keypoints) {
+        poses[0].keypoints.forEach(kp => {
+          if (kp.score > 0.4) {
+            ctx.beginPath();
+            ctx.arc(kp.x, kp.y, 5, 0, 2 * Math.PI);
+            ctx.fillStyle = 'red';
+            ctx.fill();
+          }
+        });
+        if (isTesting) checkBalance(poses[0].keypoints);
       }
-      requestAnimationFrame(render);
     }
+    requestAnimationFrame(render);
+  }
 
-    function checkBalance(keypoints) {
-      const leftAnk = keypoints.find(k => k.name === 'left_ankle');
-      const rightAnk = keypoints.find(k => k.name === 'right_ankle');
-      if (!leftAnk || !rightAnk) return;
+  function checkBalance(keypoints) {
+    const leftAnk = keypoints.find(k => k.name === 'left_ankle');
+    const rightAnk = keypoints.find(k => k.name === 'right_ankle');
+    if (!leftAnk || !rightAnk) return;
 
-      // Detect non-support foot lowered near ground (y position high)
-      const ankleY = Math.max(leftAnk.y, rightAnk.y);
-      if (ankleY > overlay.height * 0.9) {
+    // Detect if either ankle is "too low"
+    const ankleY = Math.max(leftAnk.y, rightAnk.y);
+    if (ankleY > overlay.height * 0.9) {
+      if (!breakDetected) {
         count++;
         document.getElementById('count').innerText = count;
-        isTesting = false;
+        breakDetected = true; // So we don't increment again until foot is lifted
       }
+    } else {
+      breakDetected = false; // Reset when foot is lifted
     }
+  }
 
-    document.getElementById('startBtn').onclick = () => {
-      if (isTesting) return;
-      count = 0; timeLeft = 30; isTesting = true;
-      document.getElementById('count').innerText = count;
+  document.getElementById('startBtn').onclick = () => {
+    if (isTesting) return;
+    count = 0; timeLeft = 30; isTesting = true; breakDetected = false;
+    document.getElementById('count').innerText = count;
+    document.getElementById('timer').innerText = timeLeft;
+    interval = setInterval(() => {
+      timeLeft--;
       document.getElementById('timer').innerText = timeLeft;
-      interval = setInterval(() => {
-        timeLeft--;
-        document.getElementById('timer').innerText = timeLeft;
-        if (timeLeft <= 0) {
-          clearInterval(interval);
-          isTesting = false;
-        }
-      }, 1000);
-    };
+      if (timeLeft <= 0) {
+        clearInterval(interval);
+        isTesting = false;
+        alert('Test complete! Balance breaks: ' + count);
+      }
+    }, 1000);
+  };
 
-    init();
+  init();
   </script>
 </body>
 </html>
