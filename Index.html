@@ -1,1 +1,98 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>One-Leg Balance Test</title>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-core"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-converter"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/pose-detection"></script>
+  <style>
+    body { font-family: sans-serif; text-align: center; }
+    #video { transform: scaleX(-1); width: 100%; max-width: 600px; }
+    #overlay { position: absolute; top: 0; left: 0; }
+    #ui { margin-top: 10px; }
+    button { padding: 10px 20px; font-size: 16px; }
+  </style>
+</head>
+<body>
+  <h1>🦵 One-Leg Balance Test (30 sec)</h1>
+  <div style="position: relative; display: inline-block;">
+    <video id="video" autoplay muted playsinline></video>
+    <canvas id="overlay"></canvas>
+  </div>
+  <div id="ui">
+    <button id="startBtn">Start Test</button>
+    <div>Time left: <span id="timer">30</span>s</div>
+    <div>Balance breaks: <span id="count">0</span></div>
+  </div>
 
+  <script>
+    let detector, video, overlay, ctx;
+    let isTesting = false, timeLeft = 30, count = 0;
+    let interval;
+
+    async function init() {
+      video = document.getElementById('video');
+      overlay = document.getElementById('overlay');
+      ctx = overlay.getContext('2d');
+      overlay.width = video.width = window.innerWidth * 0.9;
+      overlay.height = video.height = window.innerWidth * 0.9 * 4/3;
+
+      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' } });
+      video.srcObject = stream;
+      detector = await poseDetection.createDetector(poseDetection.SupportedModels.MoveNet);
+      requestAnimationFrame(render);
+    }
+
+    async function render() {
+      if (video.readyState >= 2) {
+        const poses = await detector.estimatePoses(video);
+        ctx.clearRect(0, 0, overlay.width, overlay.height);
+        if (poses[0] && poses[0].keypoints) {
+          poses[0].keypoints.forEach(kp => {
+            if (kp.score > 0.4) {
+              ctx.beginPath();
+              ctx.arc(kp.x, kp.y, 5, 0, 2 * Math.PI);
+              ctx.fillStyle = 'red';
+              ctx.fill();
+            }
+          });
+          if (isTesting) checkBalance(poses[0].keypoints);
+        }
+      }
+      requestAnimationFrame(render);
+    }
+
+    function checkBalance(keypoints) {
+      const leftAnk = keypoints.find(k => k.name === 'left_ankle');
+      const rightAnk = keypoints.find(k => k.name === 'right_ankle');
+      if (!leftAnk || !rightAnk) return;
+
+      // Detect non-support foot lowered near ground (y position high)
+      const ankleY = Math.max(leftAnk.y, rightAnk.y);
+      if (ankleY > overlay.height * 0.9) {
+        count++;
+        document.getElementById('count').innerText = count;
+        isTesting = false;
+      }
+    }
+
+    document.getElementById('startBtn').onclick = () => {
+      if (isTesting) return;
+      count = 0; timeLeft = 30; isTesting = true;
+      document.getElementById('count').innerText = count;
+      document.getElementById('timer').innerText = timeLeft;
+      interval = setInterval(() => {
+        timeLeft--;
+        document.getElementById('timer').innerText = timeLeft;
+        if (timeLeft <= 0) {
+          clearInterval(interval);
+          isTesting = false;
+        }
+      }, 1000);
+    };
+
+    init();
+  </script>
+</body>
+</html>
