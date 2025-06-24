@@ -17,6 +17,11 @@
       font-weight: bold;
       color: #2a8cff;
     }
+    if (timeLeft <= 0) {
+  clearInterval(interval);
+  isTesting = false;
+  alert('Test complete! Balance breaks: ' + count);
+}
   </style>
 </head>
 <body>
